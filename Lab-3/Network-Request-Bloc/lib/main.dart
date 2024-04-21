@@ -4,165 +4,161 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 void main() {
-  runApp(const NetReq());
-}
-
-class NetReq extends StatelessWidget {
-  const NetReq({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => PostsBloc(),
-      child: const MaterialApp(
-        title: 'Network Request Bloc',
-        home: MyHomePage(),
-      ),
-    );
-  }
+  runApp(
+    BlocProvider(
+      create: (context) {
+        final postsBloc = PostsBloc();
+        postsBloc.add(FetchPostsEvent());
+        return postsBloc;
+      },
+      child: const MyApp(),
+    ),
+  );
 }
 
 class Post {
   final int id;
+  final int userId;
   final String title;
   final String body;
 
-  Post({required this.id, required this.title, required this.body});
+  Post(
+      {required this.id,
+      required this.userId,
+      required this.title,
+      required this.body});
 
-  factory Post.fromJson(Map<String, dynamic> json) {
-    return Post(
-      id: json['id'],
-      title: json['title'],
-      body: json['body'],
-    );
-  }
+  factory Post.fromJson(Map<String, dynamic> json) => Post(
+        id: json['id'],
+        userId: json['userId'],
+        title: json['title'],
+        body: json['title'],
+      );
 }
 
 abstract class PostsEvent {}
 
-class FetchPosts extends PostsEvent {}
+class InitialEvent extends PostsEvent {}
 
-class PostsState {
+class LoadingEvent extends PostsEvent {}
+
+class FetchPostsEvent extends PostsEvent {} // Add this line
+
+class PostsLoadedEvent extends PostsEvent {
   final List<Post> posts;
-  final bool hasError;
 
-  const PostsState({this.posts = const [], this.hasError = false});
+  PostsLoadedEvent(this.posts);
+}
 
-  PostsState copyWith({List<Post>? posts, bool? hasError}) {
-    return PostsState(
-      posts: posts ?? this.posts,
-      hasError: hasError ?? this.hasError,
+abstract class PostsStates {
+  const PostsStates();
+
+  List<Object> get props => [];
+}
+
+class PostsInitial extends PostsStates {}
+
+class PostsLoading extends PostsStates {}
+
+class PostsLoaded extends PostsStates {
+  final List<Post> posts;
+
+  const PostsLoaded(this.posts);
+
+  @override
+  List<Object> get props => [posts];
+}
+
+class PostsError extends PostsStates {
+  final String message;
+
+  const PostsError(this.message);
+
+  @override
+  List<Object> get props => [message];
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Flutter Demo',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color.fromARGB(255, 2, 11, 183)),
+        useMaterial3: true,
+      ),
+      home: const MyHomePage(title: 'Posts with Bloc'),
     );
   }
 }
 
-class PostsBloc extends Bloc<PostsEvent, PostsState> {
-  PostsBloc() : super(const PostsState()) {
-    on<FetchPosts>(_onFetchPosts);
-  }
-
-  Future<void> _onFetchPosts(FetchPosts event, Emitter<PostsState> emit) async {
-    emit(state.copyWith(hasError: false));
-
-    try {
-      final response = await http
-          .get(Uri.parse('https://jsonplaceholder.typicode.com/posts'));
-
-      if (response.statusCode == 200) {
-        final List<Post> fetchedPosts = [];
-
-        for (var post in jsonDecode(response.body)) {
-          fetchedPosts.add(Post.fromJson(post));
+class PostsBloc extends Bloc<PostsEvent, PostsStates> {
+  PostsBloc() : super(PostsInitial()) {
+    on<PostsEvent>(
+      (event, emit) async {
+        if (event is LoadingEvent) {
+          emit(PostsLoading());
+        } else if (event is InitialEvent) {
+          emit(PostsInitial());
+        } else if (event is FetchPostsEvent) {
+          // Handle the FetchPostsEvent
+          final response = await http
+              .get(Uri.parse('https://jsonplaceholder.typicode.com/posts'));
+          if (response.statusCode == 200) {
+            final List<dynamic> responseBody = jsonDecode(response.body);
+            final List<Post> posts =
+                responseBody.map((post) => Post.fromJson(post)).toList();
+            emit(PostsLoaded(posts));
+          } else {
+            emit(PostsError('Failed to load posts'));
+          }
         }
-
-        emit(state.copyWith(posts: fetchedPosts));
-      } else {
-        throw Exception('Failed to load posts');
-      }
-    } catch (e) {
-      emit(state.copyWith(hasError: true));
-    }
-  }
-}
-
-class PostDetailBloc extends Bloc<Object, Post> {
-  PostDetailBloc() : super(Post());
-
-  Future<void> fetchAndSetPost(int id) async {
-    final response =
-        await http.get(Uri.parse('https://jsonplaceholder.typicode.com/posts'));
-    if (response.statusCode == 200) {
-      state = Post.fromJson(json.decode(response.body));
-    } else {
-      throw Exception('Failed to load post');
-    }
+      },
+    );
   }
 }
 
 class MyHomePage extends StatelessWidget {
-  const MyHomePage({super.key});
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Network Request Bloc'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(title),
       ),
-      body: RefreshIndicator(
-        onRefresh: () {
-          context.read<PostsBloc>().add(FetchPosts());
-          return Future.value();
-        },
-        child: BlocBuilder<PostsBloc, PostsState>(
-          builder: (context, state) {
-            if (state.hasError) {
-              return const Center(
-                child: Text('Something went wrong!'),
-              );
-            }
-
-            if (state.posts.isEmpty) {
-              return const Center(
-                child: CircularProgressIndicator(),
-              );
-            }
-
+      body: BlocBuilder<PostsBloc, PostsStates>(
+        builder: (context, state) {
+          if (state is PostsInitial) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (state is PostsLoading) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (state is PostsLoaded) {
+            final posts = state.posts;
             return ListView.builder(
-              itemCount: state.posts.length,
-              itemBuilder: (BuildContext context, int index) {
-                final post = state.posts[index];
-
+              itemCount: posts.length,
+              itemBuilder: (context, index) {
+                final post = posts[index];
                 return ListTile(
                   title: Text(post.title),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) {
-                          final postDetailBloc =
-                              BlocProvider.of<PostDetailBloc>(context);
-                          postDetailBloc.fetchAndSetPost(post.id);
-
-                          return BlocBuilder<PostDetailBloc, Post>(
-                            builder: (context, post) {
-                              return Scaffold(
-                                appBar: AppBar(
-                                  title: Text(post.title),
-                                ),
-                                body: Padding(
-                                  padding: EdgeInsets.all(16.0),
-                                  child: Text(post.body),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    );
-                  },
+                  subtitle: Text(post.body),
                 );
               },
             );
-          },
-        ),
+          } else if (state is PostsError) {
+            return Center(
+              child: Text('Error: ${state.message}'),
+            );
+          } else {
+            return const Text('Something went wrong');
+          }
+        },
       ),
     );
   }

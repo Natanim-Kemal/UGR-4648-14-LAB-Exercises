@@ -1,86 +1,101 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 void main() {
-  runApp(const ProviderScope(child: CounterApp()));
+  runApp(
+    const ProviderScope(
+      child: MyApp(),
+    ),
+  );
 }
 
-class CounterApp extends StatelessWidget {
-  const CounterApp({super.key});
+class Post {
+  final int id;
+  final int userId;
+  final String title;
+  final String body;
+
+  Post(
+      {required this.id,
+      required this.userId,
+      required this.title,
+      required this.body});
+
+  factory Post.fromJson(Map<String, dynamic> json) => Post(
+        id: json['id'],
+        userId: json['userId'],
+        title: json['title'],
+        body: json['title'],
+      );
+}
+
+class PostsNotifier extends StateNotifier<List<Post>> {
+  PostsNotifier() : super([]);
+
+  Future<void> fetchPosts() async {
+    final response =
+        await http.get(Uri.parse('https://jsonplaceholder.typicode.com/posts'));
+    final List<dynamic> postsJson = jsonDecode(response.body);
+    final List<Post> posts =
+        postsJson.map((postJson) => Post.fromJson(postJson)).toList();
+    state = posts;
+  }
+}
+
+final postsProvider = StateNotifierProvider<PostsNotifier, List<Post>>(
+  (ref) {
+    final postsNotifier = PostsNotifier();
+    postsNotifier.fetchPosts();
+    return postsNotifier;
+  },
+);
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Lab-3',
+      title: 'Flutter Demo',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color.fromARGB(255, 58, 66, 183)),
         useMaterial3: true,
       ),
-      home: const MyHomePage(),
+      home: const MyHomePage(title: 'Posts with Riverpod'),
     );
   }
 }
 
-final counterProvider = StateNotifierProvider<CounterModel, int>((ref) {
-  return CounterModel();
-});
-
-class CounterModel extends StateNotifier<int> {
-  CounterModel() : super(0);
-
-  void increment() {
-    state += 1;
-  }
-
-  void decrement() {
-    state -= 1;
-  }
-}
-
 class MyHomePage extends ConsumerWidget {
-  const MyHomePage({super.key});
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final counter = ref.watch(counterProvider);
+    final posts = ref.watch(postsProvider);
 
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('Counter App'),
+        title: Text(title),
       ),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 90),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                FloatingActionButton(
-                  onPressed: () =>
-                      ref.read(counterProvider.notifier).decrement(),
-                  tooltip: 'Decrement',
-                  child: const Icon(Icons.remove),
-                ),
-                const SizedBox(width: 75),
-                FloatingActionButton(
-                  onPressed: () =>
-                      ref.read(counterProvider.notifier).increment(),
-                  tooltip: 'Increment',
-                  child: const Icon(Icons.add),
-                )
-              ],
-            )
-          ],
-        ),
+        child: posts.isEmpty
+            ? const Text('No posts found')
+            : ListView.builder(
+                itemCount: posts.length,
+                itemBuilder: (context, index) {
+                  final post = posts[index];
+                  return ListTile(
+                    title: Text(post.title),
+                    subtitle: Text(post.body),
+                  );
+                },
+              ),
       ),
     );
   }
